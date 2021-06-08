@@ -8,7 +8,7 @@ class dynamo_kinematics:
         F=sqrt(x**2+y**2- self.l1**2)
         G=F-self.l2  
         H=sqrt(G**2+z**2)
-        theta1=atan2(-y,x)-atan2(F,-self.l1)
+        theta1=right*(atan2(-y,x)-atan2(F,-self.l1))
         D=(H**2-self.l3**2-self.l4**2)/(2*self.l3*self.l4)
         theta3=atan2(sqrt(1-D**2),D)
         theta2=atan2(right*z,G)-atan2(self.l4*sin(theta3),self.l3+self.l4*cos(theta3))
