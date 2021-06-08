@@ -35,7 +35,7 @@ class gait:
     swing = 1
     jnt = []
 
-    def __init__(self,stepLength = 0.1,stepHeight = 0.02,height =0.17,velocity =0.2):
+    def __init__(self,stepLength = 0.1,stepHeight = 0.05,height =0.17,velocity =0.2):
         self.stepLength,self.stepHeight,self.height,self.velocity = stepLength,stepHeight,height,velocity
 
     def joystick_callback(self,joy_status):
@@ -50,7 +50,7 @@ class gait:
             self.halt = 0
             self.rotate = 0
             self.DC1 = round(np.sin(theta),3)
-            self.DC2 = -1*round(np.sign(right)*np.cos(theta),3)
+            self.DC2 = round(np.sign(right)*np.cos(theta),3)
         else:
             self.halt = 1
             self.rotate = 0
@@ -61,7 +61,7 @@ class gait:
         self.jnt = joint_state.position
 
     def point_matrix(self,P1,right = 1):
-        P2 = np.array([(right*self.stepLength/2)*self.DC2-0.055, P1[1] ,right*(self.stepLength/2)*self.DC1])
+        P2 = np.array([(-1*right*self.stepLength/2)*self.DC2-0.055, P1[1] ,right*(self.stepLength/2)*self.DC1])
         P3 = np.array([(P1[0]+P2[0])/2,-(self.height-self.stepHeight), (P1[2]+P2[2])/2 ])
         T1 = np.array([right*self.stepLength*self.DC2,0,-right*self.stepLength*self.DC1])
         T2 = np.array([right*self.stepLength*self.DC2,0,-right*self.stepLength*self.DC1])
@@ -70,61 +70,101 @@ class gait:
     def walk(self):
         while self.jnt == []:
             pass
+        T = self.stepLength/self.velocity
         kinem = dynamo_kinematics()
-        stance_current = kinem.leg_fk(self.jnt[6],self.jnt[7],self.jnt[8])#right front joint
-        swing_current = kinem.leg_fk(self.jnt[9],self.jnt[10],self.jnt[11])#right back joint
-        swing_current = np.array([-0.055,-0.17,0])
-        stance_current = np.array([-0.055,-0.17,0])
-        stance_current[1] = -self.height
-        swing_current[1]  = -self.height
+        LF = kinem.leg_fk(self.jnt[0],self.jnt[1],self.jnt[2],-1)
+        LB = kinem.leg_fk(self.jnt[3],self.jnt[4],self.jnt[5],-1)
+        RF = kinem.leg_fk(self.jnt[6],self.jnt[7],self.jnt[8],1)
+        RB = kinem.leg_fk(self.jnt[9],self.jnt[10],self.jnt[11],1)
+        LF = np.array([-0.055,-0.15,0])
+        LB = np.array([-0.055,-0.15,0])
+        RF = np.array([-0.055,-0.15,0])
+        RB = np.array([-0.055,-0.15,0])
+        LF[1] = -self.height
+        RF[1] = -self.height
+        RB[1] = -self.height
+        LB[1] = -self.height
         while not rospy.is_shutdown():
-            T = self.stepLength/self.velocity
             if not self.halt and not abs(self.rotate):
-                    swing_matrix = self.point_matrix(swing_current)
-                    stance_end_point = np.array([-self.DC2*(self.stepLength/2) -0.055,-self.height,-self.DC1*(self.stepLength/2)])
+                if self.swing:
+                    swing_lf_points = self.point_matrix(LF,-1)
+                    swing_rb_points = self.point_matrix(RB,1)
+                    rf_end_point = np.array([self.DC2*(self.stepLength/2) -0.055,RF[1],-self.DC1*(self.stepLength/2)])
+                    lb_end_point = np.array([-self.DC2*(self.stepLength/2) -0.055,LB[1],self.DC1*(self.stepLength/2)])
                     start = rospy.get_time()
                     t = 0
-                    while(t<=T):
+                    while(t<T):
                         u = t/T
                         u = round(u,4)
-                        if u>0.96:
-                            u =1
                         U = np.array([u**4,u**3,u**2,u,1])
-                        B = np.dot(M,U)
-                        swing_pnt = np.dot(B,swing_matrix)
-                        stance_pnt = stance_current*(1-u) + stance_end_point*u
-                        swing_j1,swing_j2,swing_j3 = kinem.leg_Ik(swing_pnt[0],swing_pnt[1],swing_pnt[2])
-                        stance_j1,stance_j2,stance_j3 = kinem.leg_Ik(stance_pnt[0],stance_pnt[1],stance_pnt[2])
-                        if self.swing:
-                            pubLF1.publish(swing_j1)
-                            pubLF2.publish(swing_j2)
-                            pubLF3.publish(swing_j3)
-                            pubRB1.publish(swing_j1)
-                            pubRB2.publish(swing_j2)
-                            pubRB3.publish(swing_j3)
-                            pubLB1.publish(stance_j1)
-                            pubLB2.publish(stance_j2)
-                            pubLB3.publish(stance_j3)
-                            pubRF1.publish(stance_j1)
-                            pubRF2.publish(stance_j2)
-                            pubRF3.publish(stance_j3)
-                        else:
-                            pubLB1.publish(swing_j1)
-                            pubLB2.publish(swing_j2)
-                            pubLB3.publish(swing_j3)
-                            pubRF1.publish(swing_j1)
-                            pubRF2.publish(swing_j2)
-                            pubRF3.publish(swing_j3)
-                            pubLF1.publish(stance_j1)
-                            pubLF2.publish(stance_j2)
-                            pubLF3.publish(stance_j3)
-                            pubRB1.publish(stance_j1)
-                            pubRB2.publish(stance_j2)
-                            pubRB3.publish(stance_j3)
+                        B = np.dot(M,U)                        
+                        p_lf = np.dot(B,swing_lf_points)
+                        p_rb = np.dot(B,swing_rb_points)
+                        p_rf = RF*(1-u) + rf_end_point*u
+                        p_lb = LB*(1-u) + lb_end_point*u
+                        LF_J1,LF_J2,LF_J3 = kinem.leg_Ik(p_lf[0],p_lf[1],p_lf[2],-1)
+                        RF_J1,RF_J2,RF_J3 = kinem.leg_Ik(p_rf[0],p_rf[1],p_rf[2])
+                        LB_J1,LB_J2,LB_J3 = kinem.leg_Ik(p_lb[0],p_lb[1],p_lb[2],-1)
+                        RB_J1,RB_J2,RB_J3 = kinem.leg_Ik(p_rb[0],p_rb[1],p_rb[2])
+                        pubLF1.publish(LF_J1)
+                        pubLF2.publish(LF_J2)
+                        pubLF3.publish(LF_J3)
+                        pubRB1.publish(RB_J1)
+                        pubRB2.publish(RB_J2)
+                        pubRB3.publish(RB_J3)
+                        pubLB1.publish(LB_J1)
+                        pubLB2.publish(LB_J2)
+                        pubLB3.publish(LB_J3)
+                        pubRF1.publish(RF_J1)
+                        pubRF2.publish(RF_J2)
+                        pubRF3.publish(RF_J3)
                         t = rospy.get_time() - start
-                    swing_current = stance_pnt
-                    stance_current = swing_pnt
-                    self.swing = 1-self.swing
+                    self.swing = 0
+                else:
+                    swing_rf_points = self.point_matrix(RF,1)
+                    swing_lb_points = self.point_matrix(LB,-1)
+                    rb_end_point = np.array([self.DC2*(self.stepLength/2)-0.055,RB[1],-self.DC1*(self.stepLength/2)])
+                    lf_end_point = np.array([-self.DC2*(self.stepLength/2)-0.055,LF[1],self.DC1*(self.stepLength/2)])
+                    start = rospy.get_time()
+                    t = 0
+                    while (t < T):
+                        t = rospy.get_time() - start
+                        u = t/T
+                        U = np.array([u**4,u**3,u**2,u,1]).T
+                        B = np.dot(M,U)                        
+                        p_lb = np.dot(B,swing_lb_points)
+                        p_rf = np.dot(B,swing_rf_points)
+                        p_rb = RB*(1-u) + rb_end_point*u
+                        p_lf = LF*(1-u) + lf_end_point*u
+                        LF_J1,LF_J2,LF_J3 = kinem.leg_Ik(p_lf[0],p_lf[1],p_lf[2],-1)
+                        RF_J1,RF_J2,RF_J3 = kinem.leg_Ik(p_rf[0],p_rf[1],p_rf[2])
+                        LB_J1,LB_J2,LB_J3 = kinem.leg_Ik(p_lb[0],p_lb[1],p_lb[2],-1)
+                        RB_J1,RB_J2,RB_J3 = kinem.leg_Ik(p_rb[0],p_rb[1],p_rb[2])
+                        pubLF1.publish(LF_J1)
+                        pubLF2.publish(LF_J2)
+                        pubLF3.publish(LF_J3)
+                        pubRB1.publish(RB_J1)
+                        pubRB2.publish(RB_J2)
+                        pubRB3.publish(RB_J3)
+                        pubLB1.publish(LB_J1)
+                        pubLB2.publish(LB_J2)
+                        pubLB3.publish(LB_J3)
+                        pubRF1.publish(RF_J1)
+                        pubRF2.publish(RF_J2)
+                        pubRF3.publish(RF_J3)
+                        t = rospy.get_time() - start
+                    self.swing = 1
+                LF = p_lf
+                LF[1] = -self.height
+                LB = p_lb
+                LB[1] = -self.height
+                RF = p_rf
+                RF[1] = -self.height
+                RB = p_rb
+                RB[1] = -self.height
+
+
+
 if __name__ == "__main__":
     dynamo_gait = gait()
     rospy.init_node('Walk_control_server')
